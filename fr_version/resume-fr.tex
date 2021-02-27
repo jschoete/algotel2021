@@ -1,0 +1,640 @@
+\documentclass[]{algotel}
+
+\usepackage[latin1]{inputenc}
+\usepackage[francais]{babel}
+\usepackage{tikz}
+\usepackage{amsmath,accents}
+\usepackage{amsthm}
+\usepackage{subcaption}
+\captionsetup{compatibility=false}
+\usepackage{amsfonts}
+\usepackage{wrapfig}
+\usepackage[noabbrev,capitalize]{cleveref}
+\usepackage[]{mdframed}
+\newtheorem{theorem}{Théoreme}
+\newtheorem{lemma}{Lemme}
+\newtheorem{fact}{Remarque}
+\newtheorem{corollary}{Corollaire}
+\newtheorem{definition}{Definition}
+\newtheorem{conjecture}{Question ouverte}
+
+
+\author{Arnaud Casteigts\addressmark{1}
+	\and
+	Mathieu Raffinot\addressmark{1}
+	\and
+	Jason Schoeters\addressmark{1}}
+
+\title[VectorTSP : un problème de voyageur de commerce avec des
+  contraintes d'accélération]{\textsc{VectorTSP} : un problème de
+  voyageur de commerce avec contraintes d'accélération\thanks{La version anglaise de cet article a été présentée à ALGOSENSORS
+    2020~\cite{casteigts2020vectortsp}. Nous référons le ou la lectrice à cette version pour la liste complète des références bibliographiques, majoritairement omises dans ce résumé.}\thanks{Ce travail a été soutenu par le projet ANR ESTATE (ANR-16-CE25-0009-03).}
+}
+
+\address{\addressmark{1}Univ. Bordeaux, Bordeaux INP, CNRS, LaBRI, UMR5800, F-33400 Talence, France}
+
+
+\keywords{voyageur de commerce, planification de mouvements, contraintes d'accélération, problème d'optimization}
+
+\begin{document}
+\maketitle
+
+\begin{abstract} 
+	Nous nous intéressons à une nouvelle version du \textsc{TSP}
+        Euclidien, appelée \mbox{\textsc{VectorTSP}} (ou
+        \textsc{VTSP}) dans laquelle un véhicule peut se
+        déplacer par rapport à un ensemble de contraintes physiques
+        inspirées du jeu de papier et crayon \textsc{Racetrack} (aussi
+        appelé \textsc{Vector Racer}). Comparée à d'autres versions du
+        \textsc{TSP} avec contraintes physiques, comme le
+        \textsc{Dubins TSP}, l'esprit de ce modèle est que (1) la vitesse
+        n'est pas bornée, et (2) l'inertie dépend de la vitesse.
+        Dans cet article, nous montrons
+        plusieurs faits intéressants, comme le fait
+        qu'un ordre de visite optimal pour le problème ETSP peut être
+        sous-optimal pour VTSP. De même, une trajectoire optimale pour VTSP
+        peut comporter des croisements.
+        Par ailleurs, nous démontrons que VTSP
+        est $NP$-difficile, et dans l'autre sens, nous présentons une
+        réduction naturelle vers \textsc{GroupTSP}.
+        Enfin, nous présentons un algorithme pour ce problème qui trouve
+        souvent un meilleur ordre de visite des villes que l'ordre optimal
+        pour ETSP, nous permettant ainsi de quantifier la différence entre
+        les deux problèmes et de légitimer l'étude de VTSP.
+        Notre algorithme repose sur une approche de type 2-opt
+        utilisant un oracle pour calculer la trajectoire physique optimale
+        correspondant à un ordre de visite donné. Cet oracle lui-mêmee est
+        basé sur une version originale de l'algorithme A* dont la vocation
+        est de traiter des solutions multipoints.
+\end{abstract}
+
+%\section{Introduction}
+
+%TSP
+
+%% The problem of visiting a given set of places and returning to the
+%% starting point, while minimizing the total cost, is known as the
+%% Traveling Salesperson Problem (TSP, for short). An instance of the
+%% problem can be given as a graph whose vertices represent the places to
+%% visit (often referred to as {\em cities}) and weights on the edges
+%% represent the cost of moving from one city to another.
+
+Le problème de la visite d'un ensemble donné de sites et du retour au
+site initial tout en minimisant le coût total est connu sous le nom de
+problème du voyageur de commerce (dit TSP). Une instance de ce problème
+est souvent donnée sous la forme d'un graphe dont les sommets représentent les
+sites à visiter, les {\em villes}), et dont les poids sur les arrêtes
+représentent le coût du déplacement d'une ville à l'autre.
+%
+%% Karp a prouvé en 1972 que le problème du \textsc{Cycle Hamiltonien}
+%% est $NP$-hard, ce qui implique que \textsc{TSP} est
+%% $NP$-hard~\cite{karp1972reducibility}.  Le TSP s'est par la suite
+%% révélé être inapproximable (sauf si $P =
+%% NP$)~\cite{orponenmannila90}. Sur le plan positif, si la solution
+%% triviale a un temps de fonctionnement factoriel (essentiellement,
+%% l'évaluation de tous les permutations de l'ordre de visite), Held et
+%% Karp ont présenté un algorithme de programmation
+%% dynamique~\cite{heldkarp62} fonctionnant en temps $O(n^22^n)$, qui
+%% reste à ce jour le plus rapide des algorithmes exacts.
+%
+En 1972, Karp a démontré que le problème du \textsc{Cycle Hamiltonien}
+est NP-difficile, ce qui implique que la version originale de \textsc{TSP}
+(où une seule visite par ville est autorisée) est
+NP-difficile. En fait, le TSP en général est même inapproximable (si P $\ne$
+NP). Du côté positif, bien que l'énumération de
+toutes les solutions possibles prenne un temps factoriel, Held et
+Karp ont montré que le problème peut être résolu en temps ``seulement'' $O(n^22^n)$, ce qui reste à ce jour le meilleur temps connu.
+
+
+
+%% Karp proved in 1972 that the \textsc{Hamiltonian Cycle} problem is
+%% $NP$-hard, which implies that \textsc{TSP} is
+%% $NP$-hard~\cite{karp1972reducibility}.  TSP was subsequently shown to
+%% be inapproximable (unless $P = NP$) by Orponen and Manilla in
+%% 1990~\cite{orponenmannila90}. On the positive side, while the trivial
+%% algorithm has a factorial running time (essentially, evaluating all
+%% permutations of the visit order), Held and Karp presented % 1962 a
+%% dynamic programming algorithm~\cite{heldkarp62} running in time
+%% $O(n^22^n)$, which as of today remains the fastest known exact
+%% algorithm.
+
+De nombreux cas particuliers du \textsc{TSP} ont été étudiés,
+motivés par des applications diverses. Les plus classiques sont \textsc{Metric TSP}, où les coûts doivent satisfaire l'inégalité triangulaire, et \textsc{Euclidean TSP} (\textsc{ETSP}), où les villes ont des coordonnées dans le plan et les coûts
+correspondent aux distances euclidiennes.
+Bien que ces versions soient toujours NP-difficiles, il est bien connu que la première devient approximable à un facteur constant près et la seconde admet un schéma d'approximation (PTAS).
+Certaines versions du TSP ont aussi été proposées pour prendre en compte
+l'inertie des véhicules.
+La plus connue est le \textsc{Dubins TSP} (\textsc{DTSP})~\cite{le2007curvature}, qui limite la courbure d'une trajectoire par un rayon fixe. On peut également citer le \textsc{Double Integrator TSP}~\cite{savla2009traveling}, qui considère un modèle d'accélération
+en temps continu.
+
+
+Dans cet article, nous présentons une nouvelle version du TSP appelée \textsc{VectorTSP}, qui revient à utiliser comme modèle de contrainte physique un ensemble de règles discrètes très simples issues d'un jeu de papier et crayon connu sous le nom de \textsc{Racetrack} (ou \textsc{Vector Racer}, entre autres).
+Dans une chronique recréative du Scientific American de
+1973~\cite{gardner1973sim}, Martin Gardner a présenté ce jeu, où
+chaque joueur contrôle la vélocité (vitesse et direction) de son véhicule. À chaque tour, la vélocité peut être modifiée d'au plus une unité dans chaque dimension. Le jeu
+est en fait un problème d'optimisation de la planification des
+mouvements, le paramètre naturel à minimiser étant le nombre de tours
+nécessaires pour qu'un véhicule atteigne l'arrivée.  Dans
+\cite{holzer2010computational}, Holzer \textit{et al.} montre que
+\textsc{Racetrack} est en $NL$, et que vérifier si une stratégie donnée
+pour Racetrack est gagnante est $P$-dur.
+%, ce qui contredit la populaire
+%"conjecture" selon laquelle tous les jeux intéressants et amusants
+%sont $NP$-durs.
+Dans \cite{bekos2018algorithms}, Bekos \textit{et
+  al.} étudient \textsc{Racetrack} sur une
+simple piste rectangulaire de taille $L \times H$ d'une certaine
+largeur $W$, et montrent qu'on peut résoudre \textsc{Racetrack} en
+temps $O(W^5)$, solution qu'ils généralisent ensuite pour des pistes de type
+Indianapolis.
+% Ils considèrent également les heuristiques pour les véhicules à "vue limitée" sur ces pistes.
+
+Dans cet article, nous tentons de motiver l'étude du \textsc{VectorTSP} en démontrant un certain nombre de résultats qui illustrent sa spécificité. Par manque de place, la plupart des preuves sont omises. Elles peuvent être trouvées dans la version officielle de cet article~\cite{casteigts2020vectortsp}, ainsi qu'une généralisation de certaines propriétés en dimensions supérieures.
+
+%\section{\vspace*{-0.1cm}Notions de base et formalisations}
+\section{Notions de base et formalisation}
+
+\begin{wrapfigure}{r}{5.4cm}
+	\vspace{-.5cm}
+	\begin{center}
+		\begin{tikzpicture}[scale=.26]
+		\draw[step=1cm,lightgray!50,ultra thin] (-.5,.2) grid (17.8,15.8);
+		\tikzstyle{every node}=[draw, circle, inner sep=.7pt]
+		\path (0,1) node (x0) {};
+		\path (5,1) node[draw=none, rotate=-90, inner sep=-5pt] (x1) {\includegraphics[width=20pt]{../figs/drone.png}};
+		\path (10,1) node[color=red] (x2bis) {};
+		\path (9,2) node (x2) {};
+		\path (13,3) node[color=red] (x3bis) {};
+		\path (12,4) node (x3) {};
+		\path (15,6) node[color=red] (x4bis) {};
+		\path (14,7) node (x4) {};
+		\path (16,10) node[color=red] (x5bis) {};
+		\path (15,10) node (x5) {};
+		\path (16,13) node[color=red!30] (x6bis) {};
+		\path (15,12) node (x6) {};
+		\path (15,14) node[color=white] (x7bis) {};
+		\path (14,13) node (x7) {};
+		\path (13,14) node[color=white] (x8bis) {};
+		\path (12,14) node (x8) {};
+		
+		\draw (x0) -- (x1);
+		\draw[dotted,->] (x1) -- (x2bis);
+		\draw (x1) -- (x2);
+		\draw[dotted,->] (x2) -- (x3bis);
+		\draw (x2) -- (x3);
+		\draw[dotted,->] (x3) -- (x4bis);
+		\draw (x3) -- (x4);
+		\draw[dotted,->] (x4) -- (x5bis);
+		\draw (x4) -- (x5);
+		\draw[dotted,->] (x5) -- (x6bis);
+		\draw (x5) -- (x6);
+		\draw[dotted,->] (x6) -- (x7bis);
+		\draw (x6) -- (x7);
+		\draw[dotted,->] (x7) -- (x8bis);
+		\draw (x7) -- (x8);
+		
+		
+		\tikzstyle{every node}=[draw, circle, inner sep=.7pt, color=red]
+		\path (x2bis) + (1,0) node (x2bisr) {};
+		\path (x2bis) + (-1,0) node (x2bisl) {};
+		\path (x2bis) + (0,1) node (x2bisu) {};
+		\path (x2bis) + (0,-1) node (x2bisd) {};
+		\path (x3bis) + (1,0) node (x3bisr) {};
+		\path (x3bis) + (-1,0) node (x3bisl) {};
+		\path (x3bis) + (0,1) node (x3bisu) {};
+		\path (x3bis) + (0,-1) node (x3bisd) {};
+		\path (x4bis) + (1,0) node (x4bisr) {};
+		\path (x4bis) + (-1,0) node (x4bisl) {};
+		\path (x4bis) + (0,1) node (x4bisu) {};
+		\path (x4bis) + (0,-1) node (x4bisd) {};
+		\path (x5bis) + (1,0) node (x5bisr) {};
+		\path (x5bis) + (-1,0) node[color=green] (x5bisl) {};
+		\path (x5bis) + (0,1) node (x5bisu) {};
+		\path (x5bis) + (0,-1) node (x5bisd) {};
+		\path (x6bis) + (1,0) node[color=red!30] (x6bisr) {};
+		\path (x6bis) + (-1,0) node[color=red!30] (x6bisl) {};
+		\path (x6bis) + (0,1) node[color=red!30] (x6bisu) {};
+		\path (x6bis) + (0,-1) node[color=red!30] (x6bisd) {};
+		\path (x8bis) + (-1,0) node[color=green] (x8bisl) {};
+		\path (x2bis) + (1,1) node (x2bisr) {};
+		\path (x2bis) + (-1,1) node[color=green] (x2bisl) {};
+		\path (x2bis) + (-1,-1) node (x2bisu) {};
+		\path (x2bis) + (1,-1) node (x2bisd) {};
+		\path (x3bis) + (1,1) node (x3bisr) {};
+		\path (x3bis) + (-1,1) node[color=green] (x3bisl) {};
+		\path (x3bis) + (-1,-1) node (x3bisu) {};
+		\path (x3bis) + (1,-1) node (x3bisd) {};
+		\path (x4bis) + (1,1) node (x4bisr) {};
+		\path (x4bis) + (-1,1) node[color=green] (x4bisl) {};
+		\path (x4bis) + (-1,-1) node (x4bisu) {};
+		\path (x4bis) + (1,-1) node (x4bisd) {};
+		\path (x5bis) + (1,1) node (x5bisr) {};
+		\path (x5bis) + (-1,1) node (x5bisl) {};
+		\path (x5bis) + (-1,-1) node (x5bisu) {};
+		\path (x5bis) + (1,-1) node (x5bisd) {};
+		\path (x6bis) + (1,1) node[color=red!30] (x6bisr) {};
+		\path (x6bis) + (-1,1) node[color=red!30] (x6bisl) {};
+		\path (x6bis) + (-1,-1) node[color=green] (x6bisu) {};
+		\path (x6bis) + (1,-1) node[color=red!30] (x6bisd) {};
+		\path (x7bis) + (-1,-1) node[color=green] (x7bisu) {};
+		\path (x7bis) + (-1,-1) node[color=green] (x7bisu) {};        
+		\end{tikzpicture}
+	\vspace{-.28cm}
+	\end{center}
+         \caption{Exemple de trajectoire respectant les contraintes \textsc{Racetrack}.}
+	\label{fig:racetrack_trajectory} 
+	\vspace{-.5cm}
+\end{wrapfigure}
+
+
+Les contraintes d'accélération \textsc{Racetrack} peuvent être
+énoncées comme suit: dans le plan $\mathbb{Z}^2$, la
+\emph{configuration} de l'entité mobile est de la forme $(x, y, dx,
+dy)$, où $(x, y)$ représente sa position, et $(dx, dy)$ représente son
+vecteur vitesse. Initialement, au temps $0$, la configuration du
+véhicule contient la position de départ $(x_0, y_0)$ et le vecteur nul
+$(0, 0)$. Ensuite, à chaque pas de temps discret $i$, la composante
+$dx$ (\textit{resp.} $dy$) peut être modifiée au maximum d'une unité,
+de sorte que $dx_i = dx_{i-1}$ ou $dx_i = dx_{i-1} \pm 1$
+(\textit{resp.} $dy_i = dy_{i-1}$ ou $dy_i = dy_{i-1} \pm
+1$). L'emplacement du véhicule au moment $i$ est alors donné par $x_i
+= x_{i-1} + dx_i$ et $y_i = y_{i-1} + dy_i$.  Une suite de
+configurations respectant ces contraintes est appelée
+\emph{trajectoire}. La longueur d'une trajectoire est le nombre de
+configurations qui la composent. Un exemple est donné à la
+\cref{fig\string:racetrack_trajectory}.
+
+On peut définir une notion de \emph{graphe des configurations}, dont les
+sommets correspondent à toutes les configurations possibles et les arcs
+indiquent quelles configurations peuvent se succéder directement. Une trajectoire devient alors un chemin dans ce graphe.
+
+
+\begin{fact}[Folklore]
+  Un espace délimité de taille $L \times L$ engendre un graphe des
+  configurations de taille $O(L^3)$. Une trajectoire optimale d'une configuration donnée à une autre peut être trouvée en temps polynomial en effectuant un
+  parcours en largeur (BFS) dans le graphe des configurations.
+\end{fact}
+
+Nous envisageons les paramètres suivants : (a) vitesse de visite $\nu$ : vitesse maximale à
+laquelle une ville est visitée, motivée par les arrêts de bus, la
+livraison, \textit{etc.} ; (b) distance de visite $\alpha$ : distance
+maximale à laquelle une ville est visitée, similaire à \textsc{TSP}
+avec un voisinage ; (c) complétion du vecteur $\beta$ : si les villes
+peuvent être visitées entre les configurations ($\beta = false$) ou
+non $(\beta = true)$. Ce dernier paramètre peut représenter des cycles d'activités de réseaux de capteurs économisant la batterie, par exemple. Sauf indication contraire, les paramètres par défaut considérés dans ce document
+sont $\nu = \infty$, $\alpha = 0$ et $\beta =
+false$.
+
+\textsc{VectorTSP} peut maintenant être défini.
+Intuitivement, il s'agit de trouver une trajectoire de longueur minimum
+qui visite un ensemble de villes donné. Plus formellement :
+
+\begin{definition}{\textsc{VectorTSP}}
+  \begin{mdframed}
+	\textbf{Input:} Un ensemble de $n$ villes $P \subseteq \mathbb{Z}^2$, une ville de départ $p_0 = (x_0, y_0) \in P$, les paramètres $\nu$, $\alpha$ et $\beta$, et la plus grande distance entre les villes $L$ encodée en unaire. 
+\\
+	\textbf{Output:} Une trajectoire de longueur minimale $T = (c_0,\dots, c_k)$ visitant toutes les villes de $P$, avec $c_0 = c_k = (x_0, y_0, 0, 0)$.
+	\end{mdframed} 
+\end{definition}
+
+
+
+
+
+Le rôle du paramètre $L$ est de garantir que la longueur de la
+trajectoire optimale est polynomialement limitée par la taille de l'entrée.
+Sans cela, même une instance comportant seulement deux villes pourrait
+s'avérer difficile en raison de la seule distance qui les
+sépare. On peut définir la version décisionnelle de manière analogue (voir version complète de l'article).
+
+\begin{lemma}[\cite{casteigts2020vectortsp}]
+  Une solution doit contenir au moins $\sqrt{L}$ configurations et une solution optimale au plus $O(L^2)$ configurations. De plus, la partie utile du graphe des configurations comporte $O(L^4)$ configurations.
+\end{lemma}
+
+
+On peut déjà remarquer quelques spécificités du problème VTSP vis à vis de ETSP. Par exemple, la ville de départ a un impact sur la trajectoire optimale. Une autre différence, plus fondamentale, est que :
+
+
+\begin{fact}
+  	\label{fact:crossing_traj}
+Un ordre de visite \textsc{ETSP} optimal peut induire une trajectoire sous-optimale pour \textsc{VTSP}.  De même, une trajectoire optimale pour VTSP peut contenir des croisements, ce qui est impossible pour ETSP.
+\end{fact}
+
+
+Ces propriétés sont illustrées à la~\cref{fig\string:cross}.
+
+\begin{figure}
+  \centering
+  \tikzset{one/.style={blue}}
+  \tikzset{two/.style={red, densely dashed}}
+  \begin{tikzpicture}[scale=.3, every path/.style={red,thick}]
+    \draw[step=1cm,lightgray,ultra thin] (1.5,-2.6) grid (14.5,4.9);
+    \tikzstyle{every node}=[black, draw, circle, inner sep=1pt,font=\footnotesize]
+    \path (5,4) node[fill=red,inner sep=1.4pt] (x1) {};
+    \path (7,2) node (x2) {};
+    \path (9,2) node (x3) {};
+    \path (11,4) node (x4) {};
+    \path (13,1) node (x5) {};
+    \path (6,4.3) node[draw=none] (x1_bis) {$p_0$};
+    \draw (x1) edge[loop, blue, in=60, out=120, looseness=10] (x1);
+    \path (x2) node[draw=none, above, xshift=3pt] (x6_bis) {$u$};
+    \path (x3) node[draw=none, above, xshift=-3pt] (x7_bis) {$v$};
+    \path (11,-2) node (x6) {};
+    \path (9,0) node (x7) {};
+    \path (7,0) node (x8) {};
+    \path (5,-2) node (x9) {};
+    \path (3,1) node (x10) {};
+    
+    \draw[one] (x1) -> (6,3);
+    \draw[two] (6,3) -> (x2);
+    \draw[one] (x2) -> (x3);
+    \draw[two] (x3) -> (10,3);
+    
+    \draw[one] (x6) -> (12,-2);
+    \draw[two] (12,-2) -> (13,-1);
+    \draw[one] (13,-1) -> (x5);
+    \draw[two] (x5) -> (13,3);
+    \draw[one] (13,3) -> (12,4);
+    \draw[two] (12,4) -> (x4);
+    \draw[one] (x4) -> (10,3);
+    
+    \draw[two] (x6) -> (10,-1);
+    \draw[one] (10,-1) -> (x7);
+    \draw[two] (x7) -> (x8);
+    \draw[one] (x8) -> (6,-1);
+    \draw[two] (6,-1) -> (x9);
+    \draw[one] (x9) -> (4,-2);
+    \draw[two] (4,-2) -> (3,-1);
+    \draw[one] (3,-1) -> (x10);
+    \draw[two] (x10) -> (3,3);
+    \draw[one] (3,3) -> (4,4);
+    \draw[two] (4,4) -> (x1);
+  \end{tikzpicture}
+  \hspace{2cm}
+  \begin{tikzpicture}[scale=.3, every path/.style={red,thick}]
+    \draw[step=1cm,lightgray,ultra thin] (1.5,-2.6) grid (14.5,4.9);
+    \tikzstyle{every node}=[black, draw, circle, inner sep=1pt,font=\footnotesize]
+    \path (5,4) node[fill=red,inner sep=1.4pt] (x1) {};
+    \path (7,2) node (x2) {};
+    \path (9,2) node (x3) {};
+    \path (11,4) node (x4) {};
+    \path (13,1) node (x5) {};
+    \path (6,4.3) node[draw=none] (x1_bis) {$p_0$};
+    \draw (x1) edge[loop, blue, in=60, out=120, looseness=10] (x1);
+    \path (x2) node[draw=none, above, xshift=3pt] (x6_bis) {$u$};
+    \path (x3) node[draw=none, above, xshift=-3pt] (x7_bis) {$v$};
+    \path (11,-2) node (x6) {};
+    \path (9,0) node (x7) {};
+    \path (7,0) node (x8) {};
+    \path (5,-2) node (x9) {};
+    \path (3,1) node (x10) {};
+    
+    \draw[one] (x1) -> (6,3);
+    \draw[two] (6,3) -> (8,1);
+    \draw[one] (8,1) -> (10,-1);
+    \draw[two] (10,-1) -> (x6);
+    \draw[one] (x6) -> (12,-2);
+    \draw[two] (12,-2) -> (13,-1);
+    \draw[one] (13,-1) -> (x5);
+    \draw[two] (x5) -> (13,3);
+    \draw[one] (13,3) -> (12,4);
+    \draw[two] (12,4) -> (x4);
+    \draw[one] (x4) -> (10,3);
+    \draw[two] (10,3) -> (8,1);
+    \draw[one] (8,1) -> (6,-1);
+    \draw[two] (6,-1) -> (x9);
+    \draw[one] (x9) -> (4,-2);
+    \draw[two] (4,-2) -> (3,-1);
+    \draw[one] (3,-1) -> (x10);
+    \draw[two] (x10) -> (3,3);
+    \draw[one] (3,3) -> (4,4);
+    \draw[two] (4,4) -> (x1);
+  \end{tikzpicture}
+  \caption{Exemple de trajectoire réalisant un tour optimal pour ETSP (à gauche) et une trajectoire optimale pour VTSP (à droite), correspondant à des ordres de visites différents (avec un croisement pour VTSP).}
+  \label{fig\string:cross}
+  \vspace{-0.4cm}
+\end{figure}
+
+\section{Complexité algorithmique}
+
+Nous présentons ici un résumé des principaux résultats de complexité algorithmique liés à \textsc{VectorTSP}.
+\begin{theorem}[\cite{casteigts2020vectortsp}]
+  \textsc{VectorTSP} est NP-difficile.
+\end{theorem}
+
+L'idée de preuve est de réduire \textsc{ExactCover} à
+\textsc{VectorTSP} en temps polynomial. Cette réduction est inspirée
+de la réduction de Papadimitriou pour montrer
+que \textsc{ETSP} est NP-difficile. Une limitation du résultat est que nous
+exigeons la vitesse de visite $\nu = 0$ ou $\nu = 1$ dans l'instance
+\textsc{VectorTSP} produite, ce qui laisse la question suivante ouverte
+: \textsc{VectorTSP} est-il aussi NP-difficile sans limitation de vitesse ?
+
+Nous montrons aussi que \textsc{VectorTSP} peut se réduire assez naturellement à \textsc{Group TSP}. 
+L'idée est de considérer chaque configuration visitant
+une ville et de l'ajouter comme une ville propre à l'instance
+\textsc{Group TSP} créée. Chaque ville de l'instance
+\textsc{VectorTSP} originale correspond alors à un groupe de villes
+dans l'instance \textsc{Group TSP}. Les arcs entre les villes créées sont ajoutés
+avec un poids, qui correspond à la longueur de la trajectoire \textsc{Racetrack} la plus courte entre les deux configurations correspondantes.
+
+%Les corollaires sont dus à \cite{noon1993efficient} et \cite{kanellakis1980local}.
+
+\section{Algorithmes}
+
+Nous proposons une heuristique appelée \texttt{flipVTSP}, qui
+est composée de deux parties : (1) l'exploration des ordres de visite possibles, et (2) l'implémentation d'un oracle calculant une trajectoire optimale pour un ordre de visite donné.
+La première partie est basée sur l'heuristique \emph{flip}
+(également connue sous le nom de \emph{2-opt}), communément utilisée
+pour \textsc{ETSP}. Elle est particulièrement adaptée à \textsc{VectorTSP}
+pour deux raisons : elle peut fonctionner sans coûts sur
+les arêtes (qui ne sont pas donnés dans \textsc{VectorTSP} car ils dépendent de l'ordre lui-même), et elle explore les ordres de visite qu'il y ait ou non des croisements.
+  
+
+
+L'heuristique commence par un ordre de visite initial arbitraire, qui est
+évalué par l'oracle de trajectoire. Les flips possibles (suppression de deux segments et re-connexion de leurs extrémités) dans cet ordre sont tous testés en utilisant à nouveau l'oracle de manière répétée.
+Si un meilleur ordre de visite est
+trouvé, l'algorithme récurse sur ce nouvel ordre de visite, jusqu'à ce
+que l'on obtienne un ordre correspondant à un minimum local (dans l'espace des ordres), appelé ordre 2-optimal (le ``2'' faisant ici référence au nombre de segments échangés, et non à un facteur d'approximation).
+
+
+\begin{lemma}
+  Une trajectoire correspondant à un ordre 2-optimal peut être calculée en temps
+  $O(n^2L^2\tau)$, où $\tau$ est la complexité en temps de l'oracle
+  de trajectoire.
+\end{lemma}
+
+
+%% Les paramètres suivants permettent de déterminer si une ville est visitée ou non : 
+%% \begin{itemize}
+%% 	\item Vitesse de visite $\nu$ : vitesse maximale à laquelle une ville est visitée, motivée par les arrêts de bus, la livraison, \textit{etc.} ;
+%% 	\item Distance de visite $\alpha$ : distance maximale à laquelle une ville est visitée, similaire à \textsc{TSP} avec un voisinage ;
+%% 	\item Complétion du vecteur $\beta$ : si les villes peuvent être visitées entre les configurations ($\beta = false$) ou non $(\beta = true)$. Cela peut représenter les paramètres des réseaux de capteurs optimisant la consommation de la batterie.
+%% \end{itemize}
+%% Les paramètres par défaut considérés dans ce document (sauf indication
+%% contraire) sont $\nu = \infty$, $\alpha = 0$ et $\beta =
+%% false$. \textsc{VectorTSP} peut maintenant être défini comme suit.
+
+
+Notre implémentation de l'oracle de trajectoire est basée sur l'algorithme $A^*$ que nous
+adaptons à la visite de plusieurs points dans un ordre \emph{donné} en tenant compte des contraintes \textsc{Racetrack}.
+
+\newpage
+\begin{wrapfigure}{r}{5cm}
+  \vspace{-0.2cm}
+	\centering
+	\begin{tikzpicture}[scale=0.3]%, inner sep=1mm,
+	% cherry/.style={circle,draw=black,fill=red},
+	% blueberry/.style={circle,draw=black,fill=blue}]
+	\draw[very thin, lightgray] (-1.5,-1.3) grid (15.5,13.3);
+	
+	\draw[very thick, ->] (-1, 0) to (15,0);
+	\draw[very thick, ->] (0, -1) to (0,13);
+	
+	% TOUR
+	\tikzstyle{every node}=[circle, fill = white, draw=black, font=\scriptsize, inner sep= .3mm]
+	\path (3, 5) node (p5) {$5$};
+	\path (8, 1) node (p4) {$4$};
+	\path (14, 7) node (p3) {$3$};
+	\path (10, 12) node (p2) {$2$};
+	\path (5, 10) node (p1) {$1$};
+	\draw[->,thick] (p1)--(p2);
+	\draw[->,thick] (p2)--(p3);
+	\draw[->,thick] (p3)--(p4);
+	\draw[->,thick] (p4)--(p5);
+	\draw[->,thick] (p5)--(p1);
+	
+	% X-TOUR
+	\tikzstyle{every node}=[circle, fill = white, draw=black, inner sep= .4mm]
+	\path (5, 0) node (px1) {};
+	\path (3,0) node (px5) {};
+	\path (14, 0) node (px3) {};
+	\draw[dotted, red, thick] (p1) to (px1);
+	\draw[dotted, red, thick] (p3) to (px3);
+	\draw[dotted, red, thick] (p5) to (px5);
+	\tikzstyle{every path}=[red, ->, bend right=30]
+	\draw (px1) to (6,-0.2);
+	\draw (6,-0.2) to (8,-0.2);
+	\draw (8,-0.2) to (11,-0.2);
+	\draw (11,-0.2) to (13,-0.2);
+	\draw (13,-0.2) to (px3);
+	\draw (px3) to (13,0.2);
+	\draw (13,0.2) to (11,0.2);
+	\draw (11,0.2) to (8,0.2);
+	\draw (8,0.2) to (6,0.2);
+	\draw (6,0.2) to (4,0.2);
+	\draw (4,0.2) to (px5);
+	\draw (px5) to (4,-0.2);
+	\draw (4,-0.2) to (px1);
+	\tikzstyle{every path}=[]
+	\draw[red, ->] (px3) to[out=-45, in=45, looseness=7] (px3);
+	\draw[red, ->] (px5) to[out=135, in=-135, looseness=7] (px5);
+	\path (px1) node[draw=none,fill=none,inner sep=.7mm] (px1loop){};
+	\draw[red, ->] (px1loop) to[out=-110, in=-70, looseness=8] (px1loop);
+	
+	
+	% Y-TOUR                
+	\path (0, 1) node[circle, fill = white, draw=black, inner sep= .4mm] (py4) {};
+	\path (0, 12) node[circle, fill = white, draw=black, inner sep= .4mm] (py2) {};
+	\path (0, 10) node[circle, fill = white, draw=black, inner sep= .4mm] (py1) {};
+	\draw[dotted, blue, thick] (p1) to (py1);
+	\draw[dotted, blue, thick] (p2) to (py2);
+	\draw[dotted, blue, thick] (p4) to (py4);		
+	\tikzstyle{every path}=[blue, ->, bend right=30]
+	\draw (py1) to (0.2,11);
+	\draw (0.2,11) to (py2);
+	\draw (py2) to (-0.2,11);
+	\draw (-0.2,11) to (-0.2,9);
+	\draw (-0.2,9) to (-0.2,6);
+	\draw (-0.2,6) to (-0.2,4);
+	\draw (-0.2,4) to (-0.2,2);
+	\draw (-0.2,2) to (-0.2,1);
+	\draw (0.2,1) to (0.2,2);
+	\draw (0.2,2) to (0.2,4);
+	\draw (0.2,4) to (0.2,7);
+	\draw (0.2,7) to (0.2,9);
+	\draw (0.2,9) to (py1);
+	
+	\tikzstyle{every path}=[]
+	\draw[blue, ->] (py2) to[out=50, in=130, looseness=7] (py2);
+	\draw[blue, ->] (py4) to[out=-130, in=-50, looseness=7] (py4);
+	\path (py1) node[draw=none,fill=none,inner sep=.7mm] (py1loop){};
+	\draw[blue, ->] (py1loop) to[out=-20, in=20, looseness=8] (py1loop);
+	
+	\end{tikzpicture}
+	\caption{Projection des villes à visiter dans chaque
+          dimension.}
+	\label{fig:projections}
+		\vspace{-0.4cm}
+\end{wrapfigure}
+
+Pour cela, nous utilisons une fonction
+d'estimation des coûts que notre adaptation de $A^*$ utilise pour se
+guider efficacement dans le graphe des configurations.  Cette fonction
+d'estimation calcule les coûts correspondant aux trajectoires unidimensionnelles visitant les villes selon chaque dimension prise séparément (voir \cref{fig\string:projections}). Elle renvoie le maximum entre les coûts obtenus pour chaque dimension, ce coût étant par définition inférieur au coût réel (multi-dimensionnel) de la trajectoire, ce qui est (connu pour être) une condition nécessaire et suffisante pour que $A^*$ trouve l'optimum.
+
+
+\begin{lemma}
+  L'oracle de la trajectoire s'excécute en temps $\widetilde{O}(n^2L^4)$.
+\end{lemma}
+
+\begin{theorem}
+   Une trajectoire 2-optimale peut être calculée en temps polynomial, plus précisément en temps $\widetilde{O}(n^4L^6)$.
+\end{theorem}
+
+\section{Résultats expérimentaux}
+
+Nous avons fait des expériences pour mesurer la différence entre
+\textsc{ETSP} et \textsc{VTSP}, ainsi que pour valider notre
+heuristique \texttt{flipVTSP}. Grâce à l'utilisation du
+solveur \textit{Concorde}, nous pouvons quantifier dans quelle mesure un
+ordre de visite \textsc{ETSP} optimal peut être amélioré
+grâce à l'utilisation de \texttt{flipVTSP}. 
+\begin{figure}[h]
+  \hspace*{-25pt}
+  \begin{subfigure}[b]{0.33\textwidth}
+    \includegraphics[width=5.54cm]{../figs/new_plot_n.png}
+  \end{subfigure}
+  ~\hfill
+  \begin{subfigure}[b]{0.33\textwidth}
+    \includegraphics[width=5.54cm]{../figs/new_plot_space.png}
+  \end{subfigure}
+  ~\hfill
+  \begin{subfigure}[b]{0.33\textwidth}
+    \includegraphics[width=5.54cm]{../figs/new_plot_both.png}
+  \end{subfigure}
+  \hspace*{-10pt}
+  \caption{\label{fig:experiments}En variant le nombre de
+      villes (à gauche), la taille de la zone (au milieu) et les
+      deux (à droite), ces graphiques montrent respectivement la probabilité
+      que notre heuristique effectue au moins un flip à partir d'une solution ETSP optimale (bleu), et le nombre moyen de flips effectués (orange), sur $100$ instances.}
+\end{figure}
+Ces résultats (voir \cref{fig\string:experiments}) suggèrent notamment qu'un ordre de visite optimal pour \textsc{ETSP} a moins de
+chances d'être optimal pour \textsc{VTSP} à mesure que le nombre de
+villes augmente.
+De ce fait, le problème \textsc{VTSP} semble mériter d'être étudié comme un problème indépendant d'ETSP, dont les solutions sont propres, y compris en ce qui concerne les ordres de visites (et non seulement leur conversion en trajectoire).
+
+
+
+%% En conclusion, nous avons introduit une nouvelle version de
+%% \texttt{TSP}, dans laquelle le contrôle de l'accélération d'un
+%% véhicule joue un rôle clé. Nous avons montré quelques résultats
+%% préliminaires qui distinguent déjà le problème du \texttt{TSP} bien
+%% connu. Nous avons montré que le problème était $NP$-complet et avons
+%% présenté de multiples réductions. Comme résultats algorithmiques, nous
+%% avons proposé une heuristique utilisant une combinaison de
+%% l'heuristique de retournement avec l'algorithme $A^*$. Enfin, nous
+%% avons présenté quelques résultats expérimentaux pour valider ladite
+%% heuristique et quantifier la différence entre \texttt{ETSP} et
+%% \texttt{VTSP}.
+
+%\nocite{*}
+\bibliographystyle{alpha}
+
+{\small 
+  \bibliography{resume-fr}
+  }
+\label{sec:biblio}
+
+\end{document}
